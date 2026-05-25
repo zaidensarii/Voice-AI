@@ -5,7 +5,7 @@ It places a real phone call to a number you enter from a minimal web UI, then ho
 
 You can run it in either of two telephony modes:
 
-- **`twilio`** — self-built pipeline: **Twilio** (PSTN + streaming STT) + **OpenAI** (LLM) + **ElevenLabs** (TTS, optional). Maximum control.
+- **`twilio`** — Pipeline: **Twilio** (PSTN + streaming STT) + **OpenAI** (LLM) + **ElevenLabs** (TTS, optional). Maximum control.
 - **`vapi`** — managed end-to-end via **Vapi**. One API key + a phone number id from the Vapi dashboard; STT/LLM/TTS/PSTN all handled by Vapi.
 
 Switch with a single env var: `TELEPHONY_PROVIDER=twilio` or `vapi`.
