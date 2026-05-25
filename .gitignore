@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+
+# Generated audio
+app/static/audio/*
+!app/static/audio/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
