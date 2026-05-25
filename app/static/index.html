@@ -122,7 +122,7 @@ $("call-form").addEventListener("submit", async (e) => {
     });
     const data = await r.json();
     if (!r.ok) throw new Error(data.detail || "Request failed");
-    showStatus(`Call initiated.\nSession: ${data.session_id}\nTwilio SID: ${data.call_sid}`, true);
+    showStatus(`Call initiated.\nSession: ${data.session_id}\nCall ID: ${data.call_sid}`, true);
   } catch (err) {
     showStatus(`Error: ${err.message}`, false);
   } finally {

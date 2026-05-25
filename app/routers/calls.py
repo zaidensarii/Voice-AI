@@ -23,7 +23,7 @@ async def start_call(req: StartCallRequest) -> StartCallResponse:
     try:
         scenario = get_scenario(req.scenario_id)
     except KeyError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=exc.args[0]) from exc
 
     if not req.phone_number.startswith("+"):
         raise HTTPException(status_code=400, detail="phone_number must be in E.164 format (e.g. +14155551234)")

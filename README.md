@@ -23,67 +23,6 @@ Switch with a single env var: `TELEPHONY_PROVIDER=twilio` or `vapi`.
 
 ---
 
-## Architecture
-
-```
-┌────────────┐     1. POST /api/calls       ┌──────────────────────┐
-│  Browser   │ ───────────────────────────► │   FastAPI backend     │
-│  (index)   │ ◄─────────── session_id ──── │  app/routers/calls    │
-└────────────┘                              └──────────┬───────────┘
-                                                       │ 2. REST: place outbound call
-                                                       ▼
-                                              ┌──────────────────┐
-                                              │     Twilio       │
-                                              │   (telephony)    │
-                                              └────────┬─────────┘
-                                                       │ 3. Dial user, POST webhook
-                                                       ▼
-                          ┌──────────────────────────────────────────────────┐
-                          │  /webhooks/voice/{sid}   → greeting + <Gather>    │
-                          │  /webhooks/respond/{sid} ← SpeechResult (STT)     │
-                          │                          → LLM turn → TTS → TwiML │
-                          │  /webhooks/status/{sid}  ← call lifecycle events  │
-                          └──────────────────────────────────────────────────┘
-                                  │            │              │
-                                  │            │              │
-                            (Twilio STT)   (OpenAI Chat)  (ElevenLabs TTS
-                                                          → /static/audio/*.mp3)
-```
-
-**Per-turn flow** (after the user answers the phone):
-
-1. Twilio fetches `POST /webhooks/voice/{session_id}` → we return TwiML that **plays the greeting** (ElevenLabs audio or `<Say>`) and opens a `<Gather input="speech">`.
-2. The caller speaks. Twilio performs streaming STT and `POST`s `SpeechResult` to `/webhooks/respond/{session_id}`.
-3. The backend appends the utterance to the session history, calls **OpenAI** for the next reply, synthesises **ElevenLabs** TTS (cached on disk), and returns TwiML containing `<Play>` + a new `<Gather>`.
-4. When the LLM decides the goal is met, it appends `[[END_CALL]]`. We strip the token, speak the final line, and `<Hangup>`.
-
----
-
-## Project layout
-
-```
-app/
-├── main.py                  # FastAPI app, static mount, router wiring
-├── config.py                # Pydantic Settings (env-driven)
-├── models.py                # API request/response schemas
-├── scenarios.py             # Scenario registry (data only)
-├── routers/
-│   ├── calls.py             # POST /api/calls, GET /api/scenarios
-│   └── webhooks.py          # Twilio TwiML endpoints
-├── services/
-│   ├── telephony.py         # Provider dispatcher (twilio | vapi)
-│   ├── telephony_twilio.py  # Twilio REST wrapper
-│   ├── telephony_vapi.py    # Vapi REST wrapper (transient assistant)
-│   ├── llm.py               # OpenAI chat completion + end-of-call detection (Twilio path)
-│   ├── tts.py               # ElevenLabs synthesis with file cache (Twilio path)
-│   └── conversation.py      # In-memory session store
-└── static/
-    ├── index.html           # Minimal SPA
-    └── audio/               # Generated TTS files (gitignored)
-```
-
----
-
 ## Setup
 
 ### 1. Prerequisites
@@ -138,6 +77,77 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 Open <http://localhost:8000>, enter a phone number in E.164 format, fill in the scenario variables, and click **Place call**.
+
+---
+
+## Architecture
+
+```
+┌────────────┐     1. POST /api/calls       ┌──────────────────────┐
+│  Browser   │ ───────────────────────────► │   FastAPI backend     │
+│  (index)   │ ◄─────────── session_id ──── │  app/routers/calls    │
+└────────────┘                              └──────────┬───────────┘
+                                                       │ 2. REST: place outbound call
+                                                       ▼
+                                              ┌──────────────────┐
+                                              │     Twilio       │
+                                              │   (telephony)    │
+                                              └────────┬─────────┘
+                                                       │ 3. Dial user, POST webhook
+                                                       ▼
+                          ┌──────────────────────────────────────────────────┐
+                          │  /webhooks/voice/{sid}   → greeting + <Gather>    │
+                          │  /webhooks/respond/{sid} ← SpeechResult (STT)     │
+                          │                          → LLM turn → TTS → TwiML │
+                          │  /webhooks/status/{sid}  ← call lifecycle events  │
+                          └──────────────────────────────────────────────────┘
+                                  │            │              │
+                                  │            │              │
+                            (Twilio STT)   (OpenAI Chat)  (ElevenLabs TTS
+                                                          → /static/audio/*.mp3)
+```
+
+**Per-turn flow** (after the user answers the phone):
+
+1. Twilio fetches `POST /webhooks/voice/{session_id}` → we return TwiML that **plays the greeting** (ElevenLabs audio or `<Say>`) and opens a `<Gather input="speech">`.
+2. The caller speaks. Twilio performs streaming STT and `POST`s `SpeechResult` to `/webhooks/respond/{session_id}`.
+3. The backend appends the utterance to the session history, calls **OpenAI** for the next reply, synthesises **ElevenLabs** TTS (cached on disk), and returns TwiML containing `<Play>` + a new `<Gather>`.
+4. When the LLM decides the goal is met, it appends `[[END_CALL]]`. We strip the token, speak the final line, and `<Hangup>`.
+
+### Project layout
+
+```
+app/
+├── main.py                  # FastAPI app, static mount, router wiring
+├── config.py                # Pydantic Settings (env-driven)
+├── models.py                # API request/response schemas
+├── scenarios.py             # Scenario registry (data only)
+├── routers/
+│   ├── calls.py             # POST /api/calls, GET /api/scenarios
+│   └── webhooks.py          # Twilio TwiML endpoints
+├── services/
+│   ├── telephony.py         # Provider dispatcher (twilio | vapi)
+│   ├── telephony_twilio.py  # Twilio REST wrapper
+│   ├── telephony_vapi.py    # Vapi REST wrapper (transient assistant)
+│   ├── llm.py               # OpenAI chat completion + end-of-call detection (Twilio path)
+│   ├── tts.py               # ElevenLabs synthesis with file cache (Twilio path)
+│   └── conversation.py      # In-memory session store
+└── static/
+    ├── index.html           # Minimal SPA
+    └── audio/               # Generated TTS files (gitignored)
+```
+
+---
+
+## Design decisions
+
+- **Twilio `<Gather speech>` over Media Streams.** A WebSocket Media Streams pipeline (Deepgram streaming STT + barge-in) gives lower latency, but Twilio's built-in streaming STT is reliable, dead-simple to deploy, and keeps the architecture readable for this task. The `services/` boundary makes it straightforward to swap in a Deepgram WebSocket bridge later without touching scenarios, the LLM, or the UI.
+- **Scenarios as data, not code.** Every campaign is just a `Scenario` dataclass with `{greeting, system_prompt, variables}`. The webhooks and LLM service are scenario-agnostic.
+- **LLM-emitted end token.** Hard-coding "when to hang up" is brittle. The model decides, signals with `[[END_CALL]]`, and we strip the token before TTS — natural endings, single source of truth.
+- **TTS with graceful fallback.** ElevenLabs is preferred for quality; if the key is missing or the API errors, we silently fall back to Twilio's neural voice so the call still completes.
+- **Disk-cached TTS.** Identical utterances (e.g. greetings) are synthesised once and replayed, cutting cost and latency.
+- **In-memory session store.** Single-process, dependency-free, and isolated behind a small interface — swap for Redis/Postgres without touching call logic.
+- **Strict E.164 validation + explicit config errors.** Missing Twilio credentials or a non-HTTPS `PUBLIC_BASE_URL` fail fast at call time with a clear message in the UI.
 
 ---
 
@@ -198,18 +208,6 @@ SCENARIOS["appointment_reminder"] = Scenario(
 ```
 
 The UI picks it up automatically — no engine changes required.
-
----
-
-## Design decisions
-
-- **Twilio `<Gather speech>` over Media Streams.** A WebSocket Media Streams pipeline (Deepgram streaming STT + barge-in) gives lower latency, but Twilio's built-in streaming STT is reliable, dead-simple to deploy, and keeps the architecture readable for this task. The `services/` boundary makes it straightforward to swap in a Deepgram WebSocket bridge later without touching scenarios, the LLM, or the UI.
-- **Scenarios as data, not code.** Every campaign is just a `Scenario` dataclass with `{greeting, system_prompt, variables}`. The webhooks and LLM service are scenario-agnostic.
-- **LLM-emitted end token.** Hard-coding "when to hang up" is brittle. The model decides, signals with `[[END_CALL]]`, and we strip the token before TTS — natural endings, single source of truth.
-- **TTS with graceful fallback.** ElevenLabs is preferred for quality; if the key is missing or the API errors, we silently fall back to Twilio's neural voice so the call still completes.
-- **Disk-cached TTS.** Identical utterances (e.g. greetings) are synthesised once and replayed, cutting cost and latency.
-- **In-memory session store.** Single-process, dependency-free, and isolated behind a small interface — swap for Redis/Postgres without touching call logic.
-- **Strict E.164 validation + explicit config errors.** Missing Twilio credentials or a non-HTTPS `PUBLIC_BASE_URL` fail fast at call time with a clear message in the UI.
 
 ---
 
